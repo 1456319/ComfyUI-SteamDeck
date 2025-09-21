@@ -111,10 +111,33 @@ import threading
 import gc
 
 
+if os.name == "nt":
+    os.environ['MIMALLOC_PURGE_DELAY'] = '0'
+
 if __name__ == "__main__":
+    if args.default_device is not None:
+        default_dev = args.default_device
+        devices = list(range(32))
+        devices.remove(default_dev)
+        devices.insert(0, default_dev)
+        devices = ','.join(map(str, devices))
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(devices)
+        os.environ['HIP_VISIBLE_DEVICES'] = str(devices)
+
+    if args.cuda_device is not None:
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(args.cuda_device)
+        os.environ['HIP_VISIBLE_DEVICES'] = str(args.cuda_device)
+        logging.info("Set cuda device to: {}".format(args.cuda_device))
+
+    if args.oneapi_device_selector is not None:
+        os.environ['ONEAPI_DEVICE_SELECTOR'] = args.oneapi_device_selector
+        logging.info("Set oneapi device selector to: {}".format(args.oneapi_device_selector))
+
     if args.deterministic:
         if 'CUBLAS_WORKSPACE_CONFIG' not in os.environ:
             os.environ['CUBLAS_WORKSPACE_CONFIG'] = ":4096:8"
+
+    import cuda_malloc
 
 if 'torch' in sys.modules:
     logging.warning("WARNING: Potential Error in code: Torch already imported, torch should never be imported before this point.")
@@ -129,6 +152,18 @@ import comfy.model_management
 import comfyui_version
 import app.logger
 import hook_breaker_ac10a0
+
+def cuda_malloc_warning():
+    device = comfy.model_management.get_torch_device()
+    device_name = comfy.model_management.get_torch_device_name(device)
+    cuda_malloc_warning = False
+    if "cudaMallocAsync" in device_name:
+        for b in cuda_malloc.blacklist:
+            if b in device_name:
+                cuda_malloc_warning = True
+        if cuda_malloc_warning:
+            logging.warning("\nWARNING: this card most likely does not support cuda-malloc, if you get \"CUDA error\" please run ComfyUI with: --disable-cuda-malloc\n")
+
 
 def prompt_worker(q, server_instance):
     current_time: float = 0.0
@@ -265,6 +300,13 @@ def start_comfyui(asyncio_loop=None):
         folder_paths.set_temp_directory(temp_dir)
     cleanup_temp()
 
+    if args.windows_standalone_build:
+        try:
+            import new_updater
+            new_updater.update_windows_updater()
+        except:
+            pass
+
     if not asyncio_loop:
         asyncio_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(asyncio_loop)
@@ -277,6 +319,7 @@ def start_comfyui(asyncio_loop=None):
     ))
     hook_breaker_ac10a0.restore_functions()
 
+    cuda_malloc_warning()
     setup_database()
 
     prompt_server.add_routes()
@@ -292,7 +335,7 @@ def start_comfyui(asyncio_loop=None):
     if args.auto_launch:
         def startup_server(scheme, address, port):
             import webbrowser
-            if address == '0.0.0.0':
+            if os.name == 'nt' and address == '0.0.0.0':
                 address = '127.0.0.1'
             if ':' in address:
                 address = "[{}]".format(address)

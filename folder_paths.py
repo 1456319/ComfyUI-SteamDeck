@@ -13,19 +13,15 @@ supported_pt_extensions: set[str] = {'.ckpt', '.pt', '.pt2', '.bin', '.pth', '.s
 
 folder_names_and_paths: dict[str, tuple[list[str], set[str]]] = {}
 
-# The path to the application code.
-app_path = os.path.dirname(os.path.realpath(__file__))
-
-# The path to the user's data, models, etc. Can be overridden by --base-directory.
+# --base-directory - Resets all default paths configured in folder_paths with a new base path
 if args.base_directory:
     base_path = os.path.abspath(args.base_directory)
 else:
-    # Steam Deck specific change: Default to a user-centric path that follows Linux conventions.
-    base_path = os.path.expanduser("~/.local/share/ComfyUI")
+    base_path = os.path.dirname(os.path.realpath(__file__))
 
 models_dir = os.path.join(base_path, "models")
 folder_names_and_paths["checkpoints"] = ([os.path.join(models_dir, "checkpoints")], supported_pt_extensions)
-folder_names_and_paths["configs"] = ([os.path.join(app_path, "configs")], [".yaml"]) # Configs should stay with app code
+folder_names_and_paths["configs"] = ([os.path.join(models_dir, "configs")], [".yaml"])
 
 folder_names_and_paths["loras"] = ([os.path.join(models_dir, "loras")], supported_pt_extensions)
 folder_names_and_paths["vae"] = ([os.path.join(models_dir, "vae")], supported_pt_extensions)
@@ -42,8 +38,7 @@ folder_names_and_paths["gligen"] = ([os.path.join(models_dir, "gligen")], suppor
 
 folder_names_and_paths["upscale_models"] = ([os.path.join(models_dir, "upscale_models")], supported_pt_extensions)
 
-# Custom nodes are part of the application code, not user data.
-folder_names_and_paths["custom_nodes"] = ([os.path.join(app_path, "custom_nodes")], set())
+folder_names_and_paths["custom_nodes"] = ([os.path.join(base_path, "custom_nodes")], set())
 
 folder_names_and_paths["hypernetworks"] = ([os.path.join(models_dir, "hypernetworks")], supported_pt_extensions)
 

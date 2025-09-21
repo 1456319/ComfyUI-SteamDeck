@@ -3,26 +3,12 @@
 This document outlines the comprehensive plan to refactor the ComfyUI application into a dedicated, first-class client for the Steam Deck running SteamOS in Desktop Mode.
 
 ## 1. Dependency Resolution Strategy
+System-level dependencies will be installed via pacman. All Python-specific libraries will be installed via pip into a dedicated virtual environment from a requirements.txt file.
 
-The following table maps ComfyUI's Python and system-level dependencies to their corresponding packages in the official Arch Linux repositories or the AUR (Arch User Repository). The proposed installation script will use `pacman` for installation.
-
-| Dependency          | Arch Linux Package(s)      | Proposed Installation Command                                   | Notes                                                                                                                              |
-|---------------------|----------------------------|-----------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|
-| Python 3.10+        | `python`                   | `sudo pacman -S --needed python`                                | SteamOS ships with Python. `--needed` will prevent re-installation.                                                                |
-| `torch`, `torchvision` | `python-pytorch-rocm`      | `sudo pacman -S --needed python-pytorch-rocm`                   | This provides PyTorch with ROCm backend for the Steam Deck's AMD APU. This is the most critical dependency.                       |
-| `numpy`             | `python-numpy`             | `sudo pacman -S --needed python-numpy`                          | Standard scientific computing library.                                                                                             |
-| `scipy`             | `python-scipy`             | `sudo pacman -S --needed python-scipy`                          | Required for certain nodes and image operations.                                                                                   |
-| `Pillow`            | `python-pillow`            | `sudo pacman -S --needed python-pillow`                         | Core image manipulation library.                                                                                                   |
-| `psutil`            | `python-psutil`            | `sudo pacman -S --needed python-psutil`                         | Used for getting system stats like RAM usage.                                                                                      |
-| `requests`          | `python-requests`          | `sudo pacman -S --needed python-requests`                       | For making HTTP requests (e.g., for custom node installations).                                                                    |
-| `aiohttp`           | `python-aiohttp`           | `sudo pacman -S --needed python-aiohttp`                        | Asynchronous HTTP client/server framework for the backend.                                                                         |
-| `pyyaml`            | `python-pyyaml`            | `sudo pacman -S --needed python-pyyaml`                         | For reading YAML configuration files.                                                                                              |
-| `tqdm`              | `python-tqdm`              | `sudo pacman -S --needed python-tqdm`                           | Progress bar utility.                                                                                                              |
-| `Jinja2`            | `python-jinja`             | `sudo pacman -S --needed python-jinja`                          | Templating engine.                                                                                                                 |
-| `MarkupSafe`        | `python-markupsafe`        | `sudo pacman -S --needed python-markupsafe`                     | Dependency of Jinja2.                                                                                                              |
-| `git`               | `git`                      | `sudo pacman -S --needed git`                                   | Required for installing custom nodes and managing the repository.                                                                  |
-| `xformers`          | (Not in repos)             | (To be removed)                                                 | `xformers` is primarily for NVIDIA GPUs. We will remove the dependency and rely on PyTorch's native attention implementations. |
-| `torch-directml`    | (Not applicable)           | (To be removed)                                                 | Windows-only DirectML backend.                                                                                                     |
+| Dependency Type | Tool   | Packages / Purpose                                           |
+|---------------|--------|--------------------------------------------------------------|
+| System        | pacman | `git`, `python`, `python-pytorch-rocm` (for AMD GPU support) |
+| Python        | pip    | All other Python packages (numpy, Pillow, aiohttp, etc.) managed via `requirements.txt` inside a venv. |
 
 ## 2. UI/UX Overhaul Plan (Exhaustive)
 
@@ -99,10 +85,6 @@ This section details the removal of code, features, and settings that are not re
     - The default listen address is already `127.0.0.1`, which is secure and correct. No changes are needed here. The code will be implicitly simplified by the removal of command-line arguments that are no longer needed.
 
 ## 4. Proposed Installation/Setup Script
-
-A new `setup_steamdeck.sh` script will be created to automate the entire setup process.
-
-```bash
 #!/bin/bash
 
 # setup_steamdeck.sh
@@ -110,35 +92,42 @@ A new `setup_steamdeck.sh` script will be created to automate the entire setup p
 
 echo "--- ComfyUI for Steam Deck Setup ---"
 
-# Step 1: Check for sudo access and initialize pacman keyring
-# (Required for installing packages on SteamOS)
-echo "[1/4] Initializing pacman keyring..."
+# The application and all its data will be installed here.
+INSTALL_DIR="$HOME/ComfyUI-SteamDeck"
+VENV_DIR="$INSTALL_DIR/venv"
+
+# Ensure the script is not being run from the directory it's about to create
+if [ -d "$INSTALL_DIR" ]; then
+    echo "Error: Installation directory $INSTALL_DIR already exists."
+    echo "Please remove it and run this script again."
+    exit 1
+fi
+
+# Step 1: Install core system dependencies using pacman
+echo "[1/5] Initializing pacman and installing system dependencies..."
 sudo pacman-key --init
 sudo pacman-key --populate archlinux
+sudo pacman -S --needed --noconfirm git python python-pytorch-rocm
 
-# Step 2: Install core dependencies using pacman
-echo "[2/4] Installing system dependencies..."
-sudo pacman -S --needed --noconfirm git python python-pillow python-numpy python-scipy python-psutil python-requests python-aiohttp python-pyyaml python-tqdm python-jinja python-markupsafe python-pytorch-rocm
+# Step 2: Clone the application repository
+echo "[2/5] Cloning application repository to $INSTALL_DIR..."
+git clone https://github.com/1456319/ComfyUI-SteamDeck.git "$INSTALL_DIR"
+cd "$INSTALL_DIR"
 
-# Step 3: Create application directories
-# All application data will be stored in a hidden folder in the user's home directory.
-APP_DIR="$HOME/.local/share/ComfyUI"
-echo "[3/4] Creating application directories in $APP_DIR..."
-mkdir -p "$APP_DIR/models/checkpoints"
-mkdir -p "$APP_DIR/models/vae"
-mkdir -p "$APP_DIR/models/loras"
-mkdir -p "$APP_DIR/output"
-mkdir -p "$APP_DIR/input"
-# ... create all other necessary model folders ...
+# Step 3: Create and activate Python virtual environment
+echo "[3/5] Creating Python virtual environment in $VENV_DIR..."
+python -m venv "$VENV_DIR"
 
-# The main application code will be cloned here.
-# (This assumes the setup script is run from outside the git repo)
-# If the script is part of the repo, this step will be different.
-# For now, we assume the script places the app code in the right place.
+# Step 4: Install Python dependencies using pip
+echo "[4/5] Installing Python dependencies into the virtual environment..."
+source "$VENV_DIR/bin/activate"
+pip install --upgrade pip
+pip install -r requirements.txt
 
-# Step 4: Final user instructions
-echo "[4/4] Setup complete!"
+# Step 5: Final user instructions
+echo "[5/5] Setup complete!"
 echo ""
-echo "To run the application, execute the 'run_steamdeck.sh' script."
-echo "Your models, inputs, and outputs are located in: $APP_DIR"
-```
+echo "To run the application, navigate to the directory:"
+echo "  cd $INSTALL_DIR"
+echo "And execute the 'run_steamdeck.sh' script."
+echo "Your models, inputs, and outputs should be placed according to the app's new defaults."
